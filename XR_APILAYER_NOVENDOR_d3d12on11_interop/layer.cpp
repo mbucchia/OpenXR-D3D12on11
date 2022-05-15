@@ -120,7 +120,7 @@ namespace {
             if (XR_SUCCEEDED(result)) {
                 graphicsRequirements->adapterLuid = runtimeRequirements.adapterLuid;
                 // We need at least feature level 11 for D3D12.
-                graphicsRequirements->minFeatureLevel = D3D_FEATURE_LEVEL_11_0;
+                graphicsRequirements->minFeatureLevel = D3D_FEATURE_LEVEL_11_1;
             }
 
             return result;
@@ -147,6 +147,8 @@ namespace {
             XrGraphicsBindingD3D11KHR d3d11Bindings{XR_TYPE_GRAPHICS_BINDING_D3D11_KHR};
             Session newSession;
             bool handled = false;
+            const XrBaseInStructure* const* alteredPrev = nullptr;
+            const XrBaseInStructure* restoreNext = nullptr;
 
             if (isSystemHandled(createInfo->systemId)) {
                 const XrBaseInStructure* const* pprev =
@@ -192,7 +194,7 @@ namespace {
                             // Create the interop device that the runtime will be using.
                             ComPtr<ID3D11Device> device;
                             ComPtr<ID3D11DeviceContext> deviceContext;
-                            D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
+                            D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_1;
                             UINT flags = 0;
 #ifdef _DEBUG
                             flags |= D3D11_CREATE_DEVICE_DEBUG;
@@ -228,6 +230,8 @@ namespace {
 
                         // Fill out the struct that we are passing to the OpenXR runtime.
                         // TODO: Do not write to the const struct!
+                        alteredPrev = pprev;
+                        restoreNext = *pprev;
                         *const_cast<XrBaseInStructure**>(pprev) = reinterpret_cast<XrBaseInStructure*>(&d3d11Bindings);
                         d3d11Bindings.next = entry->next;
                         d3d11Bindings.device = newSession.d3d11Device.Get();
@@ -247,6 +251,9 @@ namespace {
 
             const XrResult result = OpenXrApi::xrCreateSession(instance, createInfo, session);
             if (handled) {
+                // Restore the original struct. This is needed for downstream API layers, like the OpenXR Toolkit.
+                *const_cast<const XrBaseInStructure**>(alteredPrev) = restoreNext;
+
                 if (XR_SUCCEEDED(result)) {
                     // On success, record the state.
                     newSession.xrSession = *session;
