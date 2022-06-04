@@ -32,8 +32,6 @@ namespace {
     using namespace d3d12on11_interop;
     using namespace d3d12on11_interop::log;
 
-    using namespace xr::math;
-
     class OpenXrLayer : public d3d12on11_interop::OpenXrApi {
       private:
         // State associated with an OpenXR session.
@@ -58,11 +56,19 @@ namespace {
             XrSwapchain xrSwapchain{XR_NULL_HANDLE};
             XrSwapchainCreateInfo createInfo;
 
+            // The current image.
+            uint32_t acquiredIndex{0};
+
             // The parent session.
             XrSession xrSession{XR_NULL_HANDLE};
 
             // We import the D3D11 textures into our D3D12 device.
-            std::vector<ComPtr<ID3D12Resource>> textures;
+            std::vector<ComPtr<ID3D12Resource>> d3d12Textures;
+
+            // If the runtime texture is not shareable, we must use an intermediate texture. We also save the original
+            // texture from the runtime.
+            std::vector<ComPtr<ID3D11Texture2D>> intermediateTextures;
+            std::vector<ComPtr<ID3D11Texture2D>> d3d11Textures;
         };
 
       public:
@@ -338,13 +344,17 @@ namespace {
                 auto& swapchainState = m_swapchains[swapchain];
                 auto& sessionState = m_sessions[swapchainState.xrSession];
 
+                D3D11_TEXTURE2D_DESC desc;
+                d3d11Images[0].texture->GetDesc(&desc);
+                const bool isShareable =
+                    (desc.MiscFlags & (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE)) ==
+                    (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE);
+
                 // Export each D3D11 texture to D3D12.
                 XrSwapchainImageD3D12KHR* d3d12Images = reinterpret_cast<XrSwapchainImageD3D12KHR*>(images);
                 for (uint32_t i = 0; i < *imageCountOutput; i++) {
                     // Dump the runtime texture descriptor.
                     if (i == 0) {
-                        D3D11_TEXTURE2D_DESC desc;
-                        d3d11Images[0].texture->GetDesc(&desc);
                         Log("Swapchain image descriptor:\n");
                         Log("  w=%u h=%u arraySize=%u format=%u\n",
                             desc.Width,
@@ -357,19 +367,39 @@ namespace {
                             desc.BindFlags,
                             desc.CPUAccessFlags,
                             desc.MiscFlags);
+
+                        Log("Textures are %s\n", isShareable ? "shareable" : "NOT shareable");
                     }
 
-                    // TODO: Depth textures do not appear to be shareable. Need to implement texture copy for them.
+                    ID3D11Texture2D* d3d11Texture = d3d11Images[i].texture;
+
+                    // If the runtime does not make the texture shareable, we must use an intermediate texture.
+                    ComPtr<ID3D11Texture2D> d3d11IntermediateTexture;
+                    if (!isShareable) {
+                        D3D11_TEXTURE2D_DESC shareableDesc = desc;
+                        shareableDesc.MiscFlags |= (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE);
+                        CHECK_HRCMD(sessionState.d3d11Device->CreateTexture2D(
+                            &shareableDesc, nullptr, d3d11IntermediateTexture.ReleaseAndGetAddressOf()));
+
+                        // Save the original texture (from the runtime)...
+                        swapchainState.d3d11Textures.push_back(d3d11Texture);
+
+                        // ...and use the shareable texture for the application.
+                        d3d11Texture = d3d11IntermediateTexture.Get();
+                        swapchainState.intermediateTextures.push_back(d3d11Texture);
+                    }
+
+                    // Create an imported texture on the D3D12 device.
                     wil::unique_handle textureHandle;
                     ComPtr<IDXGIResource1> dxgiResource;
-                    CHECK_HRCMD(
-                        d3d11Images[i].texture->QueryInterface(IID_PPV_ARGS(dxgiResource.ReleaseAndGetAddressOf())));
-                    CHECK_HRCMD(dxgiResource->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, textureHandle.put()));
+                    CHECK_HRCMD(d3d11Texture->QueryInterface(IID_PPV_ARGS(dxgiResource.ReleaseAndGetAddressOf())));
+                    CHECK_HRCMD(dxgiResource->CreateSharedHandle(
+                        nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, textureHandle.put()));
                     ComPtr<ID3D12Resource> d3d12Resource;
                     CHECK_HRCMD(sessionState.d3d12Device->OpenSharedHandle(
                         textureHandle.get(), IID_PPV_ARGS(d3d12Resource.ReleaseAndGetAddressOf())));
 
-                    swapchainState.textures.push_back(d3d12Resource);
+                    swapchainState.d3d12Textures.push_back(d3d12Resource);
                     d3d12Images[i].texture = d3d12Resource.Get();
 
                     // TODO: Do we need explicit barriers upon xrAcquireSwapchainImage()/xrReleaseSwapchainImage()?
@@ -377,6 +407,44 @@ namespace {
             }
 
             return result;
+        }
+
+        XrResult xrAcquireSwapchainImage(XrSwapchain swapchain,
+                                         const XrSwapchainImageAcquireInfo* acquireInfo,
+                                         uint32_t* index) override {
+            const XrResult result = OpenXrApi::xrAcquireSwapchainImage(swapchain, acquireInfo, index);
+            if (XR_SUCCEEDED(result) && isSwapchainHandled(swapchain)) {
+                auto& swapchainState = m_swapchains[swapchain];
+
+                swapchainState.acquiredIndex = *index;
+            }
+
+            return result;
+        }
+
+        XrResult xrReleaseSwapchainImage(XrSwapchain swapchain,
+                                         const XrSwapchainImageReleaseInfo* releaseInfo) override {
+            if (isSwapchainHandled(swapchain)) {
+                auto& swapchainState = m_swapchains[swapchain];
+                auto& sessionState = m_sessions[swapchainState.xrSession];
+
+                if (!swapchainState.intermediateTextures.empty()) {
+                    // Copy from the intermediate texture if needed. We copy all slices.
+                    for (uint32_t i = 0; i < swapchainState.createInfo.arraySize; i++) {
+                        sessionState.d3d11Context->CopySubresourceRegion(
+                            swapchainState.d3d11Textures[swapchainState.acquiredIndex].Get(),
+                            i,
+                            0,
+                            0,
+                            0,
+                            swapchainState.intermediateTextures[swapchainState.acquiredIndex].Get(),
+                            i,
+                            nullptr);
+                    }
+                }
+            }
+
+            return OpenXrApi::xrReleaseSwapchainImage(swapchain, releaseInfo);
         }
 
         XrResult xrEndFrame(XrSession session, const XrFrameEndInfo* frameEndInfo) override {
@@ -439,7 +507,7 @@ namespace {
                 result = XR_ERROR_RUNTIME_FAILURE;
             }
 
-            DebugLog("<-- xrGetD3D12GraphicsRequirementsKHR %d\n", result);
+            DebugLog("<-- xrGetD3D12GraphicsRequirementsKHR %s\n", xr::ToCString(result));
             return result;
         }
 

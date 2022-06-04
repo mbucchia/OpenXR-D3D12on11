@@ -12,7 +12,7 @@ For troubleshooting, the log file can be found at `%LocalAppData%\XR_APILAYER_NO
 
 ## Limitations
 
-- This has only been tested with Windows Mixed Reality.
+- This has only been tested with Windows Mixed Reality and Varjo.
 - This has only been tested with NVIDIA.
 - This has been tested with the HelloXR sample app from Khronos and Flight Simulator 2020.
 
@@ -22,11 +22,6 @@ This API layer sits between any OpenXR application and the OpenXR runtime. It en
 
 ## Known issues
 
-- Support for applications submitting depth buffer (eg: Unity) is currently not implemented, and will cause a crash with the following log message.
-
-```
-    Origin: dxgiResource->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, textureHandle.put())
-    Source: C:\Users\mbucc\Desktop\XR\API-Layers\OpenXR-D3D12on11\XR_APILAYER_NOVENDOR_d3d12on11_interop\layer.cpp:359
-```
+- TBD.
 
 If you are having issues, please visit the [Issues page](https://github.com/mbucchia/OpenXR-D3D12on11/issues) to look at existing support requests or to file a new one.

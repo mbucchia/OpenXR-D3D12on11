@@ -6,6 +6,8 @@ override_functions = [
     "xrCreateSwapchain",
     "xrDestroySwapchain",
     "xrEnumerateSwapchainImages",
+    "xrAcquireSwapchainImage",
+    "xrReleaseSwapchainImage",
     "xrEndFrame"
 ]
 

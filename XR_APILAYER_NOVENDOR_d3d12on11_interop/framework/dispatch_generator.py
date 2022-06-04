@@ -176,7 +176,7 @@ namespace LAYER_NAMESPACE
 			result = XR_ERROR_RUNTIME_FAILURE;
 		}}
 
-		DebugLog("<-- {cur_cmd.name} %d\\n", result);
+		DebugLog("<-- {cur_cmd.name} %s\\n", xr::ToCString(result));
 
 		return result;
 	}}

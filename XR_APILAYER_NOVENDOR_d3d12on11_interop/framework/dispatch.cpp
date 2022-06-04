@@ -81,7 +81,7 @@ namespace LAYER_NAMESPACE {
             }
         }
         if (needUseD3D11) {
-            newEnabledExtensionNames.push_back("XR_KHR_D3D11_enable");
+            newEnabledExtensionNames.push_back(XR_KHR_D3D11_ENABLE_EXTENSION_NAME);
         } else {
             Log("Direct3D 12 is not requested for the instance\n");
         }

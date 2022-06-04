@@ -8,7 +8,7 @@
     "description": "Direct3D 12 to Direct3D 11 interop",
     "instance_extensions": [
       {
-        "name": "XR_KHR_d3d12_enable",
+        "name": "XR_KHR_D3D12_enable",
         "extension_version": 8,
         "entrypoints": []
       }

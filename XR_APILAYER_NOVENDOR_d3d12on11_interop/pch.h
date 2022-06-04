@@ -67,7 +67,7 @@ using Microsoft::WRL::ComPtr;
 
 // OpenXR utilities.
 #include <XrError.h>
-#include <XrMath.h>
+#include <XrToString.h>
 
 // FMT formatter.
 #include <fmt/format.h>

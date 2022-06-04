@@ -140,6 +140,22 @@ namespace LAYER_NAMESPACE
 		PFN_xrEnumerateSwapchainImages m_xrEnumerateSwapchainImages{ nullptr };
 
 	public:
+		virtual XrResult xrAcquireSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageAcquireInfo* acquireInfo, uint32_t* index)
+		{
+			return m_xrAcquireSwapchainImage(swapchain, acquireInfo, index);
+		}
+	private:
+		PFN_xrAcquireSwapchainImage m_xrAcquireSwapchainImage{ nullptr };
+
+	public:
+		virtual XrResult xrReleaseSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageReleaseInfo* releaseInfo)
+		{
+			return m_xrReleaseSwapchainImage(swapchain, releaseInfo);
+		}
+	private:
+		PFN_xrReleaseSwapchainImage m_xrReleaseSwapchainImage{ nullptr };
+
+	public:
 		virtual XrResult xrEndFrame(XrSession session, const XrFrameEndInfo* frameEndInfo)
 		{
 			return m_xrEndFrame(session, frameEndInfo);
