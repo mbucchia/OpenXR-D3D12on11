@@ -346,9 +346,9 @@ namespace {
 
                 D3D11_TEXTURE2D_DESC desc;
                 d3d11Images[0].texture->GetDesc(&desc);
-                const bool isShareable =
-                    (desc.MiscFlags & (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE)) ==
-                    (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE);
+
+                const bool isShareable = (desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED);
+                const bool isNtHandle = (desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_NTHANDLE);
 
                 // Export each D3D11 texture to D3D12.
                 XrSwapchainImageD3D12KHR* d3d12Images = reinterpret_cast<XrSwapchainImageD3D12KHR*>(images);
@@ -377,7 +377,7 @@ namespace {
                     ComPtr<ID3D11Texture2D> d3d11IntermediateTexture;
                     if (!isShareable) {
                         D3D11_TEXTURE2D_DESC shareableDesc = desc;
-                        shareableDesc.MiscFlags |= (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE);
+                        shareableDesc.MiscFlags |= D3D11_RESOURCE_MISC_SHARED;
                         CHECK_HRCMD(sessionState.d3d11Device->CreateTexture2D(
                             &shareableDesc, nullptr, d3d11IntermediateTexture.ReleaseAndGetAddressOf()));
 
@@ -393,8 +393,12 @@ namespace {
                     wil::unique_handle textureHandle;
                     ComPtr<IDXGIResource1> dxgiResource;
                     CHECK_HRCMD(d3d11Texture->QueryInterface(IID_PPV_ARGS(dxgiResource.ReleaseAndGetAddressOf())));
-                    CHECK_HRCMD(dxgiResource->CreateSharedHandle(
-                        nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, textureHandle.put()));
+                    if (isNtHandle) {
+                        CHECK_HRCMD(
+                            dxgiResource->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, textureHandle.put()));
+                    } else {
+                        CHECK_HRCMD(dxgiResource->GetSharedHandle(textureHandle.put()));
+                    }
                     ComPtr<ID3D12Resource> d3d12Resource;
                     CHECK_HRCMD(sessionState.d3d12Device->OpenSharedHandle(
                         textureHandle.get(), IID_PPV_ARGS(d3d12Resource.ReleaseAndGetAddressOf())));
